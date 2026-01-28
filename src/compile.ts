@@ -26,6 +26,20 @@ export function compile(
 ): TemplateFunction {
   const config: EtaConfig = this.config;
 
+  if (config.inlineIncludes && this.resolvePath && this.readFile) {
+    if (!options?.filepath) {
+      throw new EtaParseError(
+        "inlineIncludes requires 'filepath' option to be set",
+      );
+    }
+    if (!config.views) {
+      throw new EtaParseError(
+        "inlineIncludes requires 'views' directory to be configured",
+      );
+    }
+    str = this.resolveIncludes(str, options.filepath);
+  }
+
   /* ASYNC HANDLING */
   // code gratefully taken from https://github.com/mde/ejs and adapted
   const ctor = options?.async

@@ -78,6 +78,9 @@ export interface EtaConfig {
 
   /** Control template file extension defaults. Default `.eta` */
   defaultExtension?: string;
+
+  /** Recursively inline include statements at compile time instead of runtime. Requires views and filepath to be set. Default false */
+  inlineIncludes: boolean;
 }
 
 /* END TYPES */
@@ -106,6 +109,7 @@ const defaultConfig: EtaConfig = {
   useWith: false,
   varName: "it",
   defaultExtension: ".eta",
+  inlineIncludes: false,
 };
 
 export { defaultConfig };

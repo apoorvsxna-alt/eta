@@ -1,0 +1,220 @@
+diff --git a/package.json b/package.json
+index 8a0135e..0845cf5 100644
+--- a/package.json
++++ b/package.json
+@@ -71,5 +71,8 @@
+     "tsdown": "^0.16.4",
+     "typescript": "^5.9.3",
+     "vitest": "^4.0.8"
++  },
++  "dependencies": {
++    "acorn": "^8.15.0"
+   }
+ }
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index f50a517..5c4cfe8 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -7,6 +7,10 @@ settings:
+ importers:
+ 
+   .:
++    dependencies:
++      acorn:
++        specifier: ^8.15.0
++        version: 8.15.0
+     devDependencies:
+       '@biomejs/biome':
+         specifier: 2.3.5
+@@ -1568,8 +1572,7 @@ snapshots:
+       '@vitest/pretty-format': 4.0.8
+       tinyrainbow: 3.0.3
+ 
+-  acorn@8.15.0:
+-    optional: true
++  acorn@8.15.0: {}
+ 
+   ansis@4.2.0: {}
+ 
+diff --git a/src/compile.ts b/src/compile.ts
+index 243d4fd..69a9e1c 100644
+--- a/src/compile.ts
++++ b/src/compile.ts
+@@ -26,6 +26,21 @@ export function compile(
+ ): TemplateFunction {
+   const config: EtaConfig = this.config;
+ 
++  // Inline includes if the option is enabled
++  if (config.inlineIncludes && this.resolvePath && this.readFile) {
++    if (!options?.filepath) {
++      throw new EtaParseError(
++        "inlineIncludes requires 'filepath' option to be set",
++      );
++    }
++    if (!config.views) {
++      throw new EtaParseError(
++        "inlineIncludes requires 'views' directory to be configured",
++      );
++    }
++    str = this.resolveIncludes(str, options.filepath);
++  }
++
+   /* ASYNC HANDLING */
+   // code gratefully taken from https://github.com/mde/ejs and adapted
+   const ctor = options?.async
+diff --git a/src/config.ts b/src/config.ts
+index af43610..08d10d6 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -78,6 +78,9 @@ export interface EtaConfig {
+ 
+   /** Control template file extension defaults. Default `.eta` */
+   defaultExtension?: string;
++
++  /** Recursively inline include statements at compile time instead of runtime. Requires views and filepath to be set. Default false */
++  inlineIncludes: boolean;
+ }
+ 
+ /* END TYPES */
+@@ -106,6 +109,7 @@ const defaultConfig: EtaConfig = {
+   useWith: false,
+   varName: "it",
+   defaultExtension: ".eta",
++  inlineIncludes: false,
+ };
+ 
+ export { defaultConfig };
+diff --git a/src/file-handling.ts b/src/file-handling.ts
+index 9ec6f01..b6c4ee2 100644
+--- a/src/file-handling.ts
++++ b/src/file-handling.ts
+@@ -1,5 +1,6 @@
+ import * as fs from "node:fs";
+ import * as path from "node:path";
++import * as acorn from "acorn";
+ 
+ import type { Options } from "./config.ts";
+ import { EtaFileResolutionError } from "./err.ts";
+@@ -90,3 +91,102 @@ function dirIsChild(parent: string, dir: string) {
+ }
+ 
+ const absolutePathRegExp = /^\\|^\//;
++
++/**
++ * Parses an include/includeFile call and extracts the path and checks for data parameter.
++ * Uses acorn for robust JavaScript parsing.
++ */
++function parseIncludeCall(
++  callContent: string,
++): { path: string; hasDataParam: boolean } | null {
++  try {
++    const code = `(${callContent})`;
++    const ast = acorn.parse(code, { ecmaVersion: 2020 }) as any;
++    const expr = ast.body[0]?.expression;
++    if (!expr || expr.type !== "CallExpression") return null;
++    const args = expr.arguments;
++    if (args.length === 0) return null;
++    const pathArg = args[0];
++    if (pathArg.type !== "Literal" || typeof pathArg.value !== "string") {
++      return null;
++    }
++    return { path: pathArg.value, hasDataParam: args.length > 1 };
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * Recursively resolves and inlines all include/includeFile statements in a template.
++ * This allows templates to be fully self-contained at compile time.
++ * Includes with data parameters are preserved for runtime to maintain proper scoping.
++ *
++ * @param templateString - The template content to process
++ * @param templatePath - Absolute path to the template file being processed
++ * @param visited - Set of already visited paths to prevent circular includes
++ * @returns Template string with includes inlined (except those with data params)
++ */
++export function resolveIncludes(
++  this: EtaCore,
++  templateString: string,
++  templatePath: string,
++  visited: Set<string> = new Set(),
++): string {
++  if (visited.has(templatePath)) {
++    throw new EtaFileResolutionError(
++      `Circular include detected: ${templatePath}`,
++    );
++  }
++
++  visited.add(templatePath);
++
++  const config = this.config;
++  const tags = config.tags;
++
++  const escapeRegex = (str: string) =>
++    str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
++
++  const openTag = escapeRegex(tags[0]);
++  const closeTag = escapeRegex(tags[1]);
++
++  const includeRegex = new RegExp(
++    `${openTag}~\\s*((?:E\\.)?(?:include|includeFile)\\s*\\([^]*?\\))\\s*${closeTag}`,
++    "g",
++  );
++
++  return templateString.replace(includeRegex, (match: string, callContent: string) => {
++    try {
++      if (!this.resolvePath || !this.readFile) {
++        return match;
++      }
++
++      const parsed = parseIncludeCall(callContent);
++      if (!parsed) {
++        return match;
++      }
++
++      const { path: includePath, hasDataParam } = parsed;
++
++      if (hasDataParam) {
++        return match;
++      }
++
++      const resolvedPath = this.resolvePath(includePath, {
++        filepath: templatePath,
++      });
++
++      const includedContent = this.readFile(resolvedPath);
++      const newVisited = new Set(visited);
++
++      return this.resolveIncludes(includedContent, resolvedPath, newVisited);
++    } catch (err) {
++      if (
++        err instanceof EtaFileResolutionError &&
++        err.message.includes("Circular")
++      ) {
++        throw err;
++      }
++      return match;
++    }
++  });
++}
+diff --git a/src/internal.ts b/src/internal.ts
+index 584608b..f983d63 100644
+--- a/src/internal.ts
++++ b/src/internal.ts
+@@ -12,6 +12,7 @@ import {
+   renderStringAsync,
+ } from "./render.ts";
+ import { Cacher } from "./storage.ts";
++import { resolveIncludes } from "./file-handling.ts";
+ 
+ export class Eta {
+   constructor(customConfig?: Partial<EtaConfig>) {
+@@ -34,6 +35,7 @@ export class Eta {
+   renderAsync = renderAsync;
+   renderString = renderString;
+   renderStringAsync = renderStringAsync;
++  resolveIncludes = resolveIncludes;
+ 
+   filepathCache: Record<string, string> = {};
+   templatesSync: Cacher<TemplateFunction> = new Cacher<TemplateFunction>({});

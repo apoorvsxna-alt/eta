@@ -1,0 +1,416 @@
+diff --git a/test.sh b/test.sh
+new file mode 100755
+index 0000000..7b79112
+--- /dev/null
++++ b/test.sh
+@@ -0,0 +1,15 @@
++#!/bin/bash
++set -e
++
++case "$1" in
++  base)
++    pnpm vitest run test/compile-string.spec.ts test/compile.spec.ts test/config.spec.ts test/err.spec.ts test/file-handling.spec.ts test/parse.spec.ts test/plugins.spec.ts test/render.spec.ts test/storage.spec.ts test/utils.spec.ts
++    ;;
++  new)
++    pnpm vitest run test/inline-includes.spec.ts
++    ;;
++  *)
++    echo "Usage: ./test.sh {base|new}"
++    exit 1
++    ;;
++esac
+\ No newline at end of file
+diff --git a/test/inline-includes.spec.ts b/test/inline-includes.spec.ts
+new file mode 100644
+index 0000000..4109c57
+--- /dev/null
++++ b/test/inline-includes.spec.ts
+@@ -0,0 +1,388 @@
++import { describe, expect, it } from "vitest";
++
++import { Eta } from "../src/index";
++
++const path = require("node:path");
++
++describe("Inline includes", () => {
++  describe("Basic functionality", () => {
++    it("inlines a single include statement", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "User" });
++      expect(result).toEqual("Hi User");
++    });
++
++    it("inlines nested includes", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("./partial") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "Test" });
++      expect(result).toContain("This is a partial.");
++      expect(result).toContain("Hi Test Runner");
++    });
++
++    it("compiles has-include.eta correctly", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const fs = require("node:fs");
++      const templatePath = path.join(__dirname, "templates", "has-include.eta");
++      const templateStr = fs.readFileSync(templatePath, "utf8");
++
++      const compiled = eta.compile(templateStr, {
++        filepath: templatePath,
++      });
++
++      const result = compiled.call(eta, { name: "Tester" });
++      expect(result).toContain("This is the outermost template");
++      expect(result).toContain("This is a partial.");
++      expect(result).toContain("Hi Test Runner");
++    });
++  });
++
++  describe("Compiled output validation", () => {
++    it("works without views directory at runtime", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const etaNoViews = new Eta();
++      const result = compiled.call(etaNoViews, { name: "User" });
++      expect(result).toEqual("Hi User");
++    });
++
++    it("produces same output whether includes are inlined or resolved at runtime", () => {
++      const views = path.join(__dirname, "templates");
++      const filepath = path.join(views, "test.eta");
++      const templateStr = '<%~ include("./simple") %>';
++      const data = { name: "CompareTest" };
++
++      const etaInline = new Eta({ views, inlineIncludes: true });
++      const inlinedResult = etaInline.compile(templateStr, { filepath }).call(etaInline, data);
++
++      const etaRuntime = new Eta({ views, inlineIncludes: false });
++      const runtimeResult = etaRuntime.compile(templateStr, { filepath }).call(etaRuntime, data);
++
++      expect(inlinedResult).toEqual(runtimeResult);
++    });
++  });
++
++  describe("Error handling", () => {
++    it("throws error for circular includes", () => {
++      const fs = require("node:fs");
++      const tmpDir = path.join(__dirname, "temp-circular");
++      const file1 = path.join(tmpDir, "circular1.eta");
++      const file2 = path.join(tmpDir, "circular2.eta");
++
++      try {
++        fs.mkdirSync(tmpDir, { recursive: true });
++        fs.writeFileSync(file1, 'Start <%~ include("./circular2") %>');
++        fs.writeFileSync(file2, 'Middle <%~ include("./circular1") %>');
++
++        const eta2 = new Eta({
++          views: tmpDir,
++          inlineIncludes: true,
++        });
++
++        const templateStr = fs.readFileSync(file1, "utf8");
++
++        expect(() => {
++          eta2.compile(templateStr, { filepath: file1 });
++        }).toThrow();
++      } finally {
++        try {
++          fs.unlinkSync(file1);
++          fs.unlinkSync(file2);
++          fs.rmdirSync(tmpDir);
++        } catch (e) {
++        }
++      }
++    });
++
++    it("preserves include if file cannot be resolved", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = 'Before <%~ include("./nonexistent") %> After';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      expect(compiled).toBeDefined();
++      expect(typeof compiled).toBe("function");
++
++      expect(() => {
++        compiled.call(eta, {});
++      }).toThrow();
++    });
++
++    it("preserved includes can succeed at runtime with proper context", () => {
++      const fs = require("node:fs");
++      const tmpDir = path.join(__dirname, "temp-runtime");
++      const tmpFile = path.join(tmpDir, "runtime-partial.eta");
++
++      try {
++        fs.mkdirSync(tmpDir, { recursive: true });
++
++        const eta = new Eta({
++          views: path.join(__dirname, "templates"),
++          inlineIncludes: true,
++        });
++
++        const templateStr = 'Start <%~ include("./nonexistent-at-compile") %> End';
++        const compiled = eta.compile(templateStr, {
++          filepath: path.join(__dirname, "templates", "test.eta"),
++        });
++
++        fs.writeFileSync(tmpFile, "Runtime content");
++
++        const etaRuntime = new Eta({
++          views: tmpDir,
++        });
++        etaRuntime.resolvePath = (_path, _options) => tmpFile;
++
++        const result = compiled.call(etaRuntime, {});
++        expect(result).toContain("Start");
++        expect(result).toContain("Runtime content");
++        expect(result).toContain("End");
++      } finally {
++        try {
++          fs.unlinkSync(tmpFile);
++          fs.rmdirSync(tmpDir);
++        } catch (e) {
++        }
++      }
++    });
++  });
++
++  describe("Edge cases", () => {
++    it("handles include with single quotes", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = "<%~ include('./simple') %>";
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "User" });
++      expect(result).toEqual("Hi User");
++    });
++
++    it("handles include with double quotes", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "User" });
++      expect(result).toEqual("Hi User");
++    });
++
++    it("handles multiple includes in one template", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = `
++Before
++<%~ include("./simple") %>
++Middle
++<%~ include("./simple") %>
++After`;
++
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "Test" });
++      expect(result).toContain("Before");
++      expect(result).toContain("Hi Test");
++      expect(result).toContain("Middle");
++      expect(result).toContain("After");
++    });
++
++    it("handles includeFile as well as include", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ includeFile("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "User" });
++      expect(result).toEqual("Hi User");
++    });
++
++    it("handles nested includeFile statements", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ includeFile("./partial") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "NestedTest" });
++      expect(result).toContain("This is a partial.");
++      expect(result).toContain("Hi Test Runner");
++    });
++
++    it("handles relative paths correctly", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "RelativeTest" });
++      expect(result).toContain("Hi RelativeTest");
++    });
++
++    it("works with templates that have no includes", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = "Hello <%= it.name %>";
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "NoIncludes" });
++      expect(result).toEqual("Hello NoIncludes");
++    });
++  });
++
++  describe("Async templates", () => {
++    it("inlines includes in async templates", async () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++        async: true,
++      });
++
++      const result = await compiled.call(eta, { name: "AsyncUser" });
++      expect(result).toEqual("Hi AsyncUser");
++    });
++
++    it("async compiled templates work without filesystem", async () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++        async: true,
++      });
++
++      const etaNoViews = new Eta();
++      const result = await compiled.call(etaNoViews, { name: "AsyncTest" });
++      expect(result).toEqual("Hi AsyncTest");
++    });
++  });
++
++  describe("Backward compatibility", () => {
++    it("does not inline includes when inlineIncludes is false", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: false,
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const result = compiled.call(eta, { name: "RuntimeTest" });
++      expect(result).toEqual("Hi RuntimeTest");
++    });
++
++    it("default behavior does not inline includes", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++      });
++
++      const templateStr = '<%~ include("./simple") %>';
++      const compiled = eta.compile(templateStr, {
++        filepath: path.join(__dirname, "templates", "test.eta"),
++      });
++
++      const etaNoViews = new Eta();
++      expect(() => {
++        compiled.call(etaNoViews, { name: "DefaultTest" });
++      }).toThrow();
++    });
++  });
++
++  describe("Integration with existing templates", () => {
++    it("can compile simple templates with inline includes", () => {
++      const eta = new Eta({
++        views: path.join(__dirname, "templates"),
++        inlineIncludes: true,
++      });
++
++      const fs = require("node:fs");
++      const templatePath = path.join(__dirname, "templates", "index.eta");
++      const templateStr = fs.readFileSync(templatePath, "utf8");
++
++      const compiled = eta.compile(templateStr, {
++        filepath: templatePath,
++      });
++
++      const result = compiled.call(eta, { title: "Test Title" });
++      expect(result).toBeTruthy();
++    });
++  });
++});

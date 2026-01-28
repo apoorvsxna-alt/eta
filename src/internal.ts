@@ -12,6 +12,7 @@ import {
   renderStringAsync,
 } from "./render.ts";
 import { Cacher } from "./storage.ts";
+import { resolveIncludes } from "./file-handling.ts";
 
 export class Eta {
   constructor(customConfig?: Partial<EtaConfig>) {
@@ -34,6 +35,7 @@ export class Eta {
   renderAsync = renderAsync;
   renderString = renderString;
   renderStringAsync = renderStringAsync;
+  resolveIncludes = resolveIncludes;
 
   filepathCache: Record<string, string> = {};
   templatesSync: Cacher<TemplateFunction> = new Cacher<TemplateFunction>({});
