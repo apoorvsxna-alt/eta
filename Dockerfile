@@ -3,4 +3,5 @@ WORKDIR /app
 COPY . .
 ENV CI=true
 RUN pnpm install
+RUN pnpm add acorn
 CMD ["/bin/bash"]

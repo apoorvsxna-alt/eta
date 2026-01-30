@@ -1,50 +1,11 @@
-diff --git a/package.json b/package.json
-index 8a0135e..0845cf5 100644
---- a/package.json
-+++ b/package.json
-@@ -71,5 +71,8 @@
-     "tsdown": "^0.16.4",
-     "typescript": "^5.9.3",
-     "vitest": "^4.0.8"
-+  },
-+  "dependencies": {
-+    "acorn": "^8.15.0"
-   }
- }
-diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index f50a517..5c4cfe8 100644
---- a/pnpm-lock.yaml
-+++ b/pnpm-lock.yaml
-@@ -7,6 +7,10 @@ settings:
- importers:
- 
-   .:
-+    dependencies:
-+      acorn:
-+        specifier: ^8.15.0
-+        version: 8.15.0
-     devDependencies:
-       '@biomejs/biome':
-         specifier: 2.3.5
-@@ -1568,8 +1572,7 @@ snapshots:
-       '@vitest/pretty-format': 4.0.8
-       tinyrainbow: 3.0.3
- 
--  acorn@8.15.0:
--    optional: true
-+  acorn@8.15.0: {}
- 
-   ansis@4.2.0: {}
- 
 diff --git a/src/compile.ts b/src/compile.ts
-index 243d4fd..69a9e1c 100644
+index 243d4fd..407cad4 100644
 --- a/src/compile.ts
 +++ b/src/compile.ts
-@@ -26,6 +26,21 @@ export function compile(
+@@ -26,6 +26,20 @@ export function compile(
  ): TemplateFunction {
    const config: EtaConfig = this.config;
  
-+  // Inline includes if the option is enabled
 +  if (config.inlineIncludes && this.resolvePath && this.readFile) {
 +    if (!options?.filepath) {
 +      throw new EtaParseError(
@@ -85,7 +46,7 @@ index af43610..08d10d6 100644
  
  export { defaultConfig };
 diff --git a/src/file-handling.ts b/src/file-handling.ts
-index 9ec6f01..b6c4ee2 100644
+index 9ec6f01..26ff0fd 100644
 --- a/src/file-handling.ts
 +++ b/src/file-handling.ts
 @@ -1,5 +1,6 @@
@@ -95,15 +56,11 @@ index 9ec6f01..b6c4ee2 100644
  
  import type { Options } from "./config.ts";
  import { EtaFileResolutionError } from "./err.ts";
-@@ -90,3 +91,102 @@ function dirIsChild(parent: string, dir: string) {
+@@ -90,3 +91,88 @@ function dirIsChild(parent: string, dir: string) {
  }
  
  const absolutePathRegExp = /^\\|^\//;
 +
-+/**
-+ * Parses an include/includeFile call and extracts the path and checks for data parameter.
-+ * Uses acorn for robust JavaScript parsing.
-+ */
 +function parseIncludeCall(
 +  callContent: string,
 +): { path: string; hasDataParam: boolean } | null {
@@ -124,16 +81,6 @@ index 9ec6f01..b6c4ee2 100644
 +  }
 +}
 +
-+/**
-+ * Recursively resolves and inlines all include/includeFile statements in a template.
-+ * This allows templates to be fully self-contained at compile time.
-+ * Includes with data parameters are preserved for runtime to maintain proper scoping.
-+ *
-+ * @param templateString - The template content to process
-+ * @param templatePath - Absolute path to the template file being processed
-+ * @param visited - Set of already visited paths to prevent circular includes
-+ * @returns Template string with includes inlined (except those with data params)
-+ */
 +export function resolveIncludes(
 +  this: EtaCore,
 +  templateString: string,

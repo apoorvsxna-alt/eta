@@ -71,8 +71,5 @@
     "tsdown": "^0.16.4",
     "typescript": "^5.9.3",
     "vitest": "^4.0.8"
-  },
-  "dependencies": {
-    "acorn": "^8.15.0"
   }
 }
