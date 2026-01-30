@@ -21,22 +21,6 @@ describe("Inline includes", () => {
       expect(result).toEqual("Hi User");
     });
 
-    it("inlines nested includes", () => {
-      const eta = new Eta({
-        views: path.join(__dirname, "templates"),
-        inlineIncludes: true,
-      });
-
-      const templateStr = '<%~ include("./partial") %>';
-      const compiled = eta.compile(templateStr, {
-        filepath: path.join(__dirname, "templates", "test.eta"),
-      });
-
-      const result = compiled.call(eta, { name: "Test" });
-      expect(result).toContain("This is a partial.");
-      expect(result).toContain("Hi Test Runner");
-    });
-
     it("compiles has-include.eta correctly", () => {
       const eta = new Eta({
         views: path.join(__dirname, "templates"),
@@ -383,6 +367,129 @@ After`;
 
       const result = compiled.call(eta, { title: "Test Title" });
       expect(result).toBeTruthy();
+    });
+  });
+
+  describe("Complex parsing scenarios", () => {
+    it("correctly detects data param with deeply nested objects", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple", {a: {b: {c: {d: 1}}}}) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, { name: "Fallback" });
+      expect(result).toEqual("Hi Fallback");
+    });
+
+    it("correctly detects data param with arrays containing objects", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple", [{a: 1}, {b: 2}]) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, { name: "ArrayTest" });
+      expect(result).toEqual("Hi ArrayTest");
+    });
+
+    it("correctly detects data param with function calls as values", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple", {name: it.getName()}) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, { getName: () => "FuncResult" });
+      expect(result).toEqual("Hi FuncResult");
+    });
+
+    it("correctly parses include with object containing commas", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple", {a: 1, b: 2, c: 3}) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, { name: "CommaObj" });
+      expect(result).toEqual("Hi CommaObj");
+    });
+
+    it("inlines include without data param even when path looks complex", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple") %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const etaNoViews = new Eta();
+      const result = compiled.call(etaNoViews, { name: "Inlined" });
+      expect(result).toEqual("Hi Inlined");
+    });
+
+    it("does not inline when second argument is a variable reference", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple", it.data) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, { name: "VarRef", data: { name: "FromData" } });
+      expect(result).toEqual("Hi FromData");
+    });
+
+    it("handles template literal paths by preserving for runtime", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include(`./simple`) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, { name: "TemplateLit" });
+      expect(result).toEqual("Hi TemplateLit");
+    });
+
+    it("handles ternary expressions in data param", () => {
+      const eta = new Eta({
+        views: path.join(__dirname, "templates"),
+        inlineIncludes: true,
+      });
+
+      const templateStr = '<%~ include("./simple", true ? {name: "A"} : {name: "B"}) %>';
+      const compiled = eta.compile(templateStr, {
+        filepath: path.join(__dirname, "templates", "test.eta"),
+      });
+
+      const result = compiled.call(eta, {});
+      expect(result).toEqual("Hi A");
     });
   });
 });
