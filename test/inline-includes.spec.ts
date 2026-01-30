@@ -96,11 +96,39 @@ describe("Inline includes", () => {
 
         expect(() => {
           eta2.compile(templateStr, { filepath: file1 });
-        }).toThrow();
+        }).toThrow(/[Cc]ircular/);
       } finally {
         try {
           fs.unlinkSync(file1);
           fs.unlinkSync(file2);
+          fs.rmdirSync(tmpDir);
+        } catch (e) {
+        }
+      }
+    });
+
+    it("throws error for self-referencing circular include", () => {
+      const fs = require("node:fs");
+      const tmpDir = path.join(__dirname, "temp-self-circular");
+      const selfRef = path.join(tmpDir, "self.eta");
+
+      try {
+        fs.mkdirSync(tmpDir, { recursive: true });
+        fs.writeFileSync(selfRef, 'Self <%~ include("./self") %>');
+
+        const eta = new Eta({
+          views: tmpDir,
+          inlineIncludes: true,
+        });
+
+        const templateStr = fs.readFileSync(selfRef, "utf8");
+
+        expect(() => {
+          eta.compile(templateStr, { filepath: selfRef });
+        }).toThrow(/[Cc]ircular/);
+      } finally {
+        try {
+          fs.unlinkSync(selfRef);
           fs.rmdirSync(tmpDir);
         } catch (e) {
         }
