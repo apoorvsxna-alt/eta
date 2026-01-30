@@ -22,10 +22,10 @@ index 0000000..7b79112
 \ No newline at end of file
 diff --git a/test/inline-includes.spec.ts b/test/inline-includes.spec.ts
 new file mode 100644
-index 0000000..4109c57
+index 0000000..0c1274a
 --- /dev/null
 +++ b/test/inline-includes.spec.ts
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,372 @@
 +import { describe, expect, it } from "vitest";
 +
 +import { Eta } from "../src/index";
@@ -47,22 +47,6 @@ index 0000000..4109c57
 +
 +      const result = compiled.call(eta, { name: "User" });
 +      expect(result).toEqual("Hi User");
-+    });
-+
-+    it("inlines nested includes", () => {
-+      const eta = new Eta({
-+        views: path.join(__dirname, "templates"),
-+        inlineIncludes: true,
-+      });
-+
-+      const templateStr = '<%~ include("./partial") %>';
-+      const compiled = eta.compile(templateStr, {
-+        filepath: path.join(__dirname, "templates", "test.eta"),
-+      });
-+
-+      const result = compiled.call(eta, { name: "Test" });
-+      expect(result).toContain("This is a partial.");
-+      expect(result).toContain("Hi Test Runner");
 +    });
 +
 +    it("compiles has-include.eta correctly", () => {

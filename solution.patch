@@ -1,3 +1,17 @@
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..e8ebc92
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,7 @@
++FROM public.ecr.aws/x8v8d7g8/mars-base:latest
++WORKDIR /app
++COPY . .
++ENV CI=true
++RUN pnpm install
++RUN pnpm add acorn
++CMD ["/bin/bash"]
+\ No newline at end of file
 diff --git a/src/compile.ts b/src/compile.ts
 index 243d4fd..407cad4 100644
 --- a/src/compile.ts
